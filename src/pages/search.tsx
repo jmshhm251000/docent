@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Asset, Top, SearchField, GridList, Text } from '@toss/tds-mobile';
 import { adaptive } from '@toss/tds-colors';
 
-export default function Page() {
+export default function Search() {
   const [keyword, setKeyword] = useState('');
 
   const items = [

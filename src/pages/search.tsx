@@ -262,12 +262,12 @@ export default function Search() {
       <Top
         title={
           <Top.TitleParagraph size={22} color={adaptive.grey900}>
-            미국주식 3개를 고를 수 있어요
+            미국주식 5개를 선택할 수 있어요
           </Top.TitleParagraph>
         }
         subtitleBottom={
           <Top.SubtitleParagraph>
-            선택 후 지수종목과 비교분석 할수 있어요!
+            선택한 종목을 S&P 500 지수와 함께 확인할 수 있어요.
           </Top.SubtitleParagraph>
         }
       />
@@ -386,19 +386,22 @@ export default function Search() {
                 <div
                   style={{
                     position: 'absolute',
-                    top: '8px',
-                    right: '8px',
-                    width: '20px',
-                    height: '20px',
+                    top: '4px',
+                    right: '4px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
                     backgroundColor: adaptive.red500,
                     color: 'white',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '14px',
+                    fontSize: '16px',
                     cursor: 'pointer',
                     zIndex: 10,
+                    padding: '4px',
+                    minWidth: '28px',
+                    minHeight: '28px',
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -438,19 +441,22 @@ export default function Search() {
                 <div
                   style={{
                     position: 'absolute',
-                    top: '8px',
-                    right: '8px',
-                    width: '20px',
-                    height: '20px',
+                    top: '4px',
+                    right: '4px',
+                    width: '28px',
+                    height: '28px',
                     borderRadius: '50%',
                     backgroundColor: adaptive.red500,
                     color: 'white',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    fontSize: '14px',
+                    fontSize: '16px',
                     cursor: 'pointer',
                     zIndex: 10,
+                    padding: '4px',
+                    minWidth: '28px',
+                    minHeight: '28px',
                   }}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -466,7 +472,31 @@ export default function Search() {
       </GridList>
 
       <div style={{ height: 12 }} />
-      <BottomCTA fixed loading={false} onClick={handlePress}>
+      
+      {selectedStocks.length === 0 && (
+        <div style={{ 
+          padding: '0 16px 8px',
+          textAlign: 'center',
+        }}>
+          <Text typography="t7" color={adaptive.grey500} style={{ fontSize: '13px' }}>
+            주식을 1개 이상 선택해야 해요
+          </Text>
+        </div>
+      )}
+      
+      <BottomCTA 
+        fixed 
+        loading={false} 
+        {...({ 
+          onClick: selectedStocks.length > 0 ? handlePress : undefined,
+          style: selectedStocks.length === 0 ? { 
+            backgroundColor: adaptive.grey300,
+            color: adaptive.grey500,
+            pointerEvents: 'none' as const,
+            cursor: 'not-allowed',
+          } : undefined
+        } as any)}
+      >
         분석하기
       </BottomCTA>
     </>

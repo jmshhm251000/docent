@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+quantstats
+pandas
+numpy
+yfinance
+ipython
+sqlalchemy
+psycopg2-binary
+redis
+python-dotenv
+alembic
+jinja2
+aiofiles

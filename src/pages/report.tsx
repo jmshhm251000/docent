@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { Top, Text, Asset } from '@toss/tds-mobile';
 import { adaptive } from '@toss/tds-colors';
 import { Line } from 'react-chartjs-2';
@@ -24,46 +25,118 @@ ChartJS.register(
   Legend
 );
 
+// Use relative URL in development (via Vite proxy) or absolute URL from env
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? '' : 'http://localhost:8000');
+
+interface PortfolioMetrics {
+  cagr: { portfolio: number; benchmark: number; percentage: number };
+  mdd: { portfolio: number; benchmark: number; percentage: number };
+  sharpe: { portfolio: number; benchmark: number; percentage: number };
+  volatility: { portfolio: number; benchmark: number; percentage: number };
+}
+
+interface ChartData {
+  labels: string[];
+  portfolio: number[];
+  benchmark: number[];
+}
+
+interface HeatmapData {
+  year: string;
+  months: (number | null)[];
+}
+
+interface PortfolioData {
+  metrics: PortfolioMetrics;
+  cumulativeChart: ChartData;
+  volatilityChart: ChartData;
+  heatmap: HeatmapData[];
+  stocks: string[];
+  period: { start: string; end: string };
+}
+
 export default function Report() {
+  const location = useLocation();
   const [isLoading, setIsLoading] = useState(true);
   const [flippedCard, setFlippedCard] = useState<string | null>(null);
+  const [portfolioData, setPortfolioData] = useState<PortfolioData | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const primaryColor = '#3182F6';
   const grayColor = '#8B95A1';
 
-  // In production, this will be controlled by API loading state.
-  // For now, we simulate a short loading animation before showing the report.
   useEffect(() => {
-    const timer = setTimeout(() => {
+    // Get selected stocks from location state
+    const selectedStocks = location.state?.selectedStocks as string[] | undefined;
+    
+    if (!selectedStocks || selectedStocks.length === 0) {
+      setError('선택한 주식이 없습니다.');
       setIsLoading(false);
-    }, 1500);
+      return;
+    }
 
-    return () => clearTimeout(timer);
-  }, []);
+    // Fetch portfolio data from API
+    const fetchPortfolioData = async () => {
+      try {
+        setIsLoading(true);
+        setError(null);
+        
+        const stocksParam = selectedStocks.join(',');
+        const apiUrl = `${API_BASE_URL}/api/portfolio/analyze?stocks=${stocksParam}`;
+        console.log('Fetching portfolio data from:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+          method: 'GET',
+          headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+        });
+        
+        console.log('Response status:', response.status, response.statusText);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('API Error Response:', errorText);
+          let errorMessage = `API 요청 실패: ${response.status} ${response.statusText}`;
+          try {
+            const errorJson = JSON.parse(errorText);
+            if (errorJson.detail) {
+              errorMessage = errorJson.detail;
+            }
+          } catch (e) {
+            // If not JSON, use the text as is
+            if (errorText) {
+              errorMessage = errorText;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+        
+        const data: PortfolioData = await response.json();
+        console.log('Portfolio data received:', data);
+        setPortfolioData(data);
+      } catch (err) {
+        console.error('Error fetching portfolio data:', err);
+        if (err instanceof TypeError && err.message.includes('fetch')) {
+          setError(`네트워크 오류: 백엔드 서버(${API_BASE_URL})에 연결할 수 없습니다. 서버가 실행 중인지 확인해주세요.`);
+        } else {
+          setError(err instanceof Error ? err.message : '포트폴리오 데이터를 가져오는 중 오류가 발생했습니다.');
+        }
+      } finally {
+        setIsLoading(false);
+      }
+    };
 
-  // Simplified data arrays - in production, load from API or props
-  // Using sample data that matches the pattern from HTML
-  const fullCumLabels = Array.from({ length: 400 }, (_, i) => {
-    const date = new Date('2017-11-29');
-    date.setDate(date.getDate() + i * 7);
-    return date.toISOString().split('T')[0];
-  });
-  const fullCumPort = Array.from({ length: 400 }, (_, i) => 0.96 + i * 0.006);
-  const fullCumBench = Array.from({ length: 400 }, (_, i) => 0.99 + i * 0.005);
+    fetchPortfolioData();
+  }, [location.state]);
 
-  const rollLabels = Array.from({ length: 200 }, (_, i) => {
-    const date = new Date('2018-03-01');
-    date.setDate(date.getDate() + i * 10);
-    return date.toISOString().split('T')[0];
-  });
-  const rollPort = Array.from({ length: 200 }, (_, i) => 0.15 + Math.sin(i / 10) * 0.1 + i * 0.0005);
-  const rollBench = Array.from({ length: 200 }, (_, i) => 0.12 + Math.sin(i / 10) * 0.08 + i * 0.0004);
-
-  const cumulativeChartData = {
-    labels: fullCumLabels,
+  // Use API data or fallback to empty/default data
+  const cumulativeChartData = portfolioData ? {
+    labels: portfolioData.cumulativeChart.labels,
     datasets: [
       {
         label: '포트폴리오',
-        data: fullCumPort,
+        data: portfolioData.cumulativeChart.portfolio,
         borderColor: primaryColor,
         backgroundColor: 'transparent',
         borderWidth: 2,
@@ -72,7 +145,30 @@ export default function Report() {
       },
       {
         label: 'SPY',
-        data: fullCumBench,
+        data: portfolioData.cumulativeChart.benchmark,
+        borderColor: grayColor,
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [4, 3],
+        tension: 0.2,
+        pointRadius: 0,
+      },
+    ],
+  } : {
+    labels: [],
+    datasets: [
+      {
+        label: '포트폴리오',
+        data: [],
+        borderColor: primaryColor,
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        tension: 0.2,
+        pointRadius: 0,
+      },
+      {
+        label: 'SPY',
+        data: [],
         borderColor: grayColor,
         backgroundColor: 'transparent',
         borderWidth: 1.5,
@@ -83,12 +179,12 @@ export default function Report() {
     ],
   };
 
-  const volatilityChartData = {
-    labels: rollLabels,
+  const volatilityChartData = portfolioData ? {
+    labels: portfolioData.volatilityChart.labels,
     datasets: [
       {
         label: '포트폴리오',
-        data: rollPort,
+        data: portfolioData.volatilityChart.portfolio,
         borderColor: primaryColor,
         backgroundColor: 'transparent',
         borderWidth: 2,
@@ -97,7 +193,30 @@ export default function Report() {
       },
       {
         label: 'SPY',
-        data: rollBench,
+        data: portfolioData.volatilityChart.benchmark,
+        borderColor: grayColor,
+        backgroundColor: 'transparent',
+        borderWidth: 1.5,
+        borderDash: [4, 3],
+        tension: 0.2,
+        pointRadius: 0,
+      },
+    ],
+  } : {
+    labels: [],
+    datasets: [
+      {
+        label: '포트폴리오',
+        data: [],
+        borderColor: primaryColor,
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        tension: 0.2,
+        pointRadius: 0,
+      },
+      {
+        label: 'SPY',
+        data: [],
         borderColor: grayColor,
         backgroundColor: 'transparent',
         borderWidth: 1.5,
@@ -141,18 +260,8 @@ export default function Report() {
     },
   };
 
-  // Heatmap data
-  const heatmapData = [
-    { year: '2017', months: Array(12).fill(null).map((_, i) => i < 10 ? null : i === 10 ? -1.5 : 0.9) },
-    { year: '2018', months: [10.4, 1.6, -1.5, 4.0, 4.9, 2.4, 2.1, 8.2, 2.7, -9.6, 2.4, -6.5] },
-    { year: '2019', months: [7.2, 8.2, 5.1, 6.7, -1.4, 6.4, 2.8, 2.5, -4.2, 3.0, 4.5, 2.0] },
-    { year: '2020', months: [5.9, -8.3, -14.0, 12.5, 9.4, -1.4, 1.5, 13.8, -5.6, -11.9, 16.3, 5.0] },
-    { year: '2021', months: [-11.4, 11.0, 0.2, 8.9, -4.1, 2.1, 5.6, -8.6, -1.2, -4.1, -7.2, 13.0] },
-    { year: '2022', months: [6.0, -5.4, 0.8, -1.1, -0.9, -9.5, 10.0, -7.2, -11.5, 16.1, 6.8, -3.3] },
-    { year: '2023', months: [8.8, -4.2, 2.4, 4.0, -4.4, 7.6, 0.3, 4.1, -5.2, -1.3, 9.7, 2.2] },
-    { year: '2024', months: [5.2, 4.7, 0.1, -5.0, 0.4, -2.5, 3.2, 4.2, 0.8, 3.4, 7.8, -0.4] },
-    { year: '2025', months: [6.9, 5.0, -4.1, -0.6, 6.4, -3.4, -0.9, 3.5, -3.7, -1.5, 0.7, null] },
-  ];
+  // Heatmap data from API
+  const heatmapData = portfolioData?.heatmap || [];
 
   const getHeatmapColor = (value: number | null) => {
     if (value === null) return '#F9FAFB';
@@ -527,6 +636,30 @@ export default function Report() {
     );
   }
 
+  if (error || !portfolioData) {
+    return (
+      <>
+        <Top
+          title={
+            <Top.TitleParagraph size={22} color={adaptive.grey900}>
+              리포트를 불러올 수 없어요
+            </Top.TitleParagraph>
+          }
+          subtitleBottom={
+            <Top.SubtitleParagraph color={adaptive.grey500}>
+              {error || '포트폴리오 데이터를 가져오는 중 오류가 발생했습니다.'}
+            </Top.SubtitleParagraph>
+          }
+        />
+        <div style={{ padding: '24px 16px', textAlign: 'center' }}>
+          <Text typography="t7" color={adaptive.grey600}>
+            다시 시도해주세요.
+          </Text>
+        </div>
+      </>
+    );
+  }
+
   return (
     <>
       <Top
@@ -546,7 +679,7 @@ export default function Report() {
                 color={adaptive.grey500}
                 style={{ fontSize: '11px', lineHeight: 1.5 }}
               >
-                2017-11-29 ~ 2025-11-12 기준의 과거 주가 데이터를 바탕으로 작성된 정보용 리포트예요.
+                {portfolioData.period.start} ~ {portfolioData.period.end} 기준의 과거 주가 데이터를 바탕으로 작성된 정보용 리포트예요.
                 미래 수익률이나 투자 결과를 보장하지 않아요.
               </Text>
             </div>
@@ -589,40 +722,40 @@ export default function Report() {
             id="cagr"
             title="CAGR · 연평균 수익률"
             chip="성장"
-            portfolioValue="17.2%"
-            spyValue="14.6%"
-            percentage={60}
-            description="8.0년 동안 연평균 17.2%의 수익률을 기록했어요. 같은 기간 시장(SPY)의 연평균 수익률은 14.6%였어요."
+            portfolioValue={`${portfolioData.metrics.cagr.portfolio}%`}
+            spyValue={`${portfolioData.metrics.cagr.benchmark}%`}
+            percentage={portfolioData.metrics.cagr.percentage}
+            description={`연평균 ${portfolioData.metrics.cagr.portfolio}%의 수익률을 기록했어요. 같은 기간 시장(SPY)의 연평균 수익률은 ${portfolioData.metrics.cagr.benchmark}%였어요.`}
           />
 
           <MetricCard
             id="mdd"
             title="Max Drawdown · 최대 낙폭"
             chip="리스크"
-            portfolioValue="-38.7%"
-            spyValue="-33.8%"
-            percentage={40}
-            description="투자 기간 동안 최고점 대비 최대 38.7%까지 하락한 구간이 있었어요. 같은 기간 시장(SPY)의 최대 낙폭은 -33.8%였어요."
+            portfolioValue={`${portfolioData.metrics.mdd.portfolio}%`}
+            spyValue={`${portfolioData.metrics.mdd.benchmark}%`}
+            percentage={portfolioData.metrics.mdd.percentage}
+            description={`투자 기간 동안 최고점 대비 최대 ${Math.abs(portfolioData.metrics.mdd.portfolio)}%까지 하락한 구간이 있었어요. 같은 기간 시장(SPY)의 최대 낙폭은 ${Math.abs(portfolioData.metrics.mdd.benchmark)}%였어요.`}
           />
 
           <MetricCard
             id="sharpe"
             title="Sharpe Ratio · 샤프비율"
             chip="위험 대비 수익"
-            portfolioValue="0.73"
-            spyValue="0.80"
-            percentage={43}
-            description="위험 대비 초과 수익을 나타내는 샤프비율이 0.73으로 계산되었어요. 같은 기간 시장(SPY)의 샤프비율은 0.80이에요."
+            portfolioValue={portfolioData.metrics.sharpe.portfolio.toString()}
+            spyValue={portfolioData.metrics.sharpe.benchmark.toString()}
+            percentage={portfolioData.metrics.sharpe.percentage}
+            description={`위험 대비 초과 수익을 나타내는 샤프비율이 ${portfolioData.metrics.sharpe.portfolio}으로 계산되었어요. 같은 기간 시장(SPY)의 샤프비율은 ${portfolioData.metrics.sharpe.benchmark}이에요.`}
           />
 
           <MetricCard
             id="volatility"
             title="Volatility · 변동성"
             chip="움직임"
-            portfolioValue="26.7%"
-            spyValue="19.5%"
-            percentage={38}
-            description="연간 기준 변동성이 26.7%로 측정되었어요. 같은 기간 시장(SPY)의 변동성은 19.5% 수준이었어요."
+            portfolioValue={`${portfolioData.metrics.volatility.portfolio}%`}
+            spyValue={`${portfolioData.metrics.volatility.benchmark}%`}
+            percentage={portfolioData.metrics.volatility.percentage}
+            description={`연간 기준 변동성이 ${portfolioData.metrics.volatility.portfolio}%로 측정되었어요. 같은 기간 시장(SPY)의 변동성은 ${portfolioData.metrics.volatility.benchmark}% 수준이었어요.`}
           />
         </div>
 

@@ -3,10 +3,19 @@ import { Asset, Top, SearchField, GridList, Text, BottomCTA } from '@toss/tds-mo
 import { adaptive } from '@toss/tds-colors';
 import { useNavigate } from 'react-router-dom';
 import nasdaqStocks from '../assets/nasdaq_stocks.json';
+import koreanStockData from '../assets/nasdaq_stocks_all_korean_names_v5_auto_cleanup.json';
+
+const koreanNameMap: Record<string, string> = (koreanStockData as { symbol: string; name_ko: string }[]).reduce((acc, item) => {
+  if (item.symbol && item.name_ko) {
+    acc[item.symbol] = item.name_ko;
+  }
+  return acc;
+}, {} as Record<string, string>);
 
 interface Stock {
   symbol: string;
   name: string;
+  krName?: string;
 }
 
 interface SelectedStock extends Stock {
@@ -17,6 +26,18 @@ export default function Search() {
   const [keyword, setKeyword] = useState('');
   const [selectedStocks, setSelectedStocks] = useState<SelectedStock[]>([]);
   const navigation = useNavigate();
+
+  // Korean name mapping is now handled globally via koreanNameMap import
+
+  // Enrich imported stocks with Korean names where available
+  const stocks: Stock[] = useMemo(
+    () =>
+      (nasdaqStocks as Stock[]).map((s) => ({
+        ...s,
+        krName: koreanNameMap[s.symbol as keyof typeof koreanNameMap],
+      })),
+    []
+  );
 
   // Default placeholder images
   const defaultImages = [
@@ -123,7 +144,7 @@ export default function Search() {
     if (maxLen > 0) {
       const distance = levenshteinDistance(lowerQuery, lowerText);
       const similarity = (1 - distance / maxLen) * 100;
-      
+
       // Only consider if similarity is reasonable (at least 50% similar)
       if (similarity >= 50) {
         return similarity * 0.7; // Weight it lower than exact matches
@@ -147,26 +168,35 @@ export default function Search() {
   // Fuzzy search function
   const fuzzySearch = (query: string, stocks: Stock[]): Stock[] => {
     if (!query.trim()) return [];
-    
+
     const lowerQuery = query.toLowerCase();
+    const hasKorean = /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(query);
     const results: Array<{ stock: Stock; score: number }> = [];
-    
+
     for (const stock of stocks) {
       const symbol = stock.symbol.toLowerCase();
       const name = stock.name.toLowerCase();
-      
-      // Calculate scores for both symbol and name
+      const krName = (stock.krName || '').toLowerCase();
+
+      // Calculate scores for symbol, English name, and Korean name
       const symbolScore = calculateSimilarity(lowerQuery, symbol);
       const nameScore = calculateSimilarity(lowerQuery, name);
-      
-      // Use the higher score, but boost symbol matches slightly
-      const score = Math.max(symbolScore * 1.1, nameScore);
-      
+      const krScore = krName ? calculateSimilarity(lowerQuery, krName) : 0;
+
+      // If query is Korean, prioritize Korean name matches
+      let score: number;
+      if (hasKorean) {
+        score = Math.max(krScore * 1.2, nameScore * 0.7, symbolScore * 0.5);
+      } else {
+        // If query is English / ticker, keep existing behavior but also consider Korean name slightly
+        score = Math.max(symbolScore * 1.1, nameScore, krScore * 0.6);
+      }
+
       if (score > 25) {
         results.push({ stock, score });
       }
     }
-    
+
     // Sort by score descending and return top 10
     return results
       .sort((a, b) => b.score - a.score)
@@ -176,7 +206,7 @@ export default function Search() {
 
   // Get search results
   const searchResults = useMemo(() => {
-    return fuzzySearch(keyword, nasdaqStocks as Stock[]);
+    return fuzzySearch(keyword, stocks);
   }, [keyword]);
 
   // Handle adding a stock
@@ -184,17 +214,17 @@ export default function Search() {
     if (selectedStocks.length >= 5) {
       return; // Maximum 5 stocks
     }
-    
+
     // Check if already selected
     if (selectedStocks.some(s => s.symbol === stock.symbol)) {
       return;
     }
-    
+
     const newStock: SelectedStock = {
       ...stock,
       src: defaultImages[selectedStocks.length],
     };
-    
+
     setSelectedStocks([...selectedStocks, newStock]);
     setKeyword(''); // Clear search after adding
   };
@@ -254,7 +284,7 @@ export default function Search() {
   }, [selectedStocks]);
 
   const handlePress = () => {
-    navigation('/report');
+    navigation('/report', { state: { selectedStocks: selectedStocks.map(s => s.symbol) } });
   };
 
   return (
@@ -282,7 +312,7 @@ export default function Search() {
           autoFocus={false}
           disabled={false}
         />
-        
+
         {/* Search Results Dropdown */}
         {keyword.trim() && searchResults.length > 0 && (
           <div
@@ -325,7 +355,10 @@ export default function Search() {
                     {highlightMatches(stock.symbol, keyword)}
                   </div>
                   <div style={{ fontSize: '14px', color: adaptive.grey600, marginTop: '4px', lineHeight: '1.4' }}>
-                    {highlightMatches(stock.name, keyword)}
+                    {highlightMatches(
+                      /[ㄱ-ㅎㅏ-ㅣ가-힣]/.test(keyword) && stock.krName ? stock.krName : stock.name,
+                      keyword
+                    )}
                   </div>
                 </div>
                 <button
@@ -336,16 +369,16 @@ export default function Search() {
                   disabled={selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol)}
                   style={{
                     padding: '6px 12px',
-                    backgroundColor: selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol) 
-                      ? adaptive.grey300 
+                    backgroundColor: selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol)
+                      ? adaptive.grey300
                       : adaptive.blue500,
                     color: 'white',
                     border: 'none',
                     borderRadius: '6px',
                     fontSize: '14px',
                     fontWeight: 600,
-                    cursor: selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol) 
-                      ? 'not-allowed' 
+                    cursor: selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol)
+                      ? 'not-allowed'
                       : 'pointer',
                     opacity: selectedStocks.length >= 5 || selectedStocks.some(s => s.symbol === stock.symbol) ? 0.5 : 1,
                   }}
@@ -472,24 +505,24 @@ export default function Search() {
       </GridList>
 
       <div style={{ height: 12 }} />
-      
+
       {selectedStocks.length === 0 && (
-        <div style={{ 
+        <div style={{
           padding: '0 16px 8px',
           textAlign: 'center',
         }}>
           <Text typography="t7" color={adaptive.grey500} style={{ fontSize: '13px' }}>
-            주식을 1개 이상 선택해야 해요
+            주식을 최소 1개 이상 선택해야 해요
           </Text>
         </div>
       )}
-      
-      <BottomCTA 
-        fixed 
-        loading={false} 
-        {...({ 
+
+      <BottomCTA
+        fixed
+        loading={false}
+        {...({
           onClick: selectedStocks.length > 0 ? handlePress : undefined,
-          style: selectedStocks.length === 0 ? { 
+          style: selectedStocks.length === 0 ? {
             backgroundColor: adaptive.grey300,
             color: adaptive.grey500,
             pointerEvents: 'none' as const,

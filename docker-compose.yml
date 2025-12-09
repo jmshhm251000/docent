@@ -1,0 +1,37 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+    environment:
+      - PYTHONUNBUFFERED=1
+      - DATABASE_URL=postgresql://portfolio_user:portfolio_pass@postgres:5432/portfolio_db
+      - REDIS_URL=redis://redis:6379/0
+      - INTERNAL_API_KEY=${INTERNAL_API_KEY:-internal-secret-key-change-in-production}
+    depends_on:
+      - postgres
+      - redis
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      - POSTGRES_USER=portfolio_user
+      - POSTGRES_PASSWORD=portfolio_pass
+      - POSTGRES_DB=portfolio_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  postgres_data:
+  redis_data:
